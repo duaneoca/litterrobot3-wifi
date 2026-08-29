@@ -201,9 +201,29 @@ These were all ignored: `wsu` (bare), `wsu,v0`, `wsu,v2`, `Wsu,V1`, `AOK`,
 partly *after* the onboarding window closed, so those negatives are not
 conclusive and are worth re-running inside a confirmed-live window.
 
-**The listener is only up during the onboarding window.** Outside it, `udp/2379`
-is closed on both addresses and nothing answers. Arm pairing mode first, every
-time, and verify with `ports` before concluding anything from silence.
+### Liveness: only a reply proves the window is open
+
+This is the trap that will cost you the most time. After the ~10 minute
+onboarding timer expires:
+
+- the access point **keeps broadcasting**,
+- `udp/2379` **stays bound** (open, controls refused, 5/5),
+- and the responder is **dead** — every verb, including known-good ones, is
+  silently ignored on both the AP address and the station address.
+
+So neither a visible SSID nor an open port tells you anything. The only valid
+liveness signal is **a reply to `LR3`**. Check it before a sweep, and re-check
+it between batches — otherwise a run of `silent` results is indistinguishable
+from a window that closed halfway through, and you will record garbage as
+findings.
+
+Clearing the stale state needs a real power cycle: unplug the unit from its
+base for 15 seconds, wait for the solid blue light, then hold Cycle + Empty. A
+fresh button hold on its own does not appear to restart the dead responder.
+
+`sweep_window.sh` implements all of this: it waits for a genuine reply, sweeps
+the vocabulary, brackets every batch with a liveness check, and aborts the
+moment the device stops answering.
 
 ## Current status
 

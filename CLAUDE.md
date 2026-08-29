@@ -46,6 +46,14 @@ Case is inconsistent across verbs -- treat each as exact.
 
 This unit's ID is in the gitignored `device.local.json` (do NOT commit it).
 
+LIVENESS TRAP: after the ~10 min timer expires the AP keeps broadcasting AND
+udp/2379 stays bound (open, controls refused 5/5) while the responder is dead
+on both addresses. Neither SSID visibility nor an open port means anything.
+Only a reply to `LR3` proves the window is live -- check it before and between
+probe batches. Clearing the stale state needs a real power cycle (unplug from
+base 15 s, wait for solid blue, then Cycle+Empty); a fresh button hold alone
+did not revive it. Use `sweep_window.sh`, which enforces all of this.
+
 Ignored so far: bare `wsu`, `wsu,v0`, `wsu,v2`, `Wsu,V1`, `AOK`, `id`, `ver`,
 `info`, `cfg`, `config`, `status`, `get`, `mac`, `ssid`, `aws`, `cert`, `crc`,
 `serial`, `topic`, `endpoint`, `help`, `?`. That sweep ran partly AFTER the
