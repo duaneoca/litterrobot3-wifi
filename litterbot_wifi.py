@@ -19,7 +19,8 @@ The phone app then speaks a plain-text UDP protocol to the device:
 
 Documented message flow (from elttam's teardown, initial onboarding):
 
-    app  -> "Wsu,v1\r\n"                     ask device to scan for networks
+    app  -> "wsu,v1\r\n"                     ask device to scan for networks
+                                             (LOWERCASE w -- capital is ignored)
     dev  -> <list of visible SSIDs> + "Rdy,LR3{ID}"
     app  -> "AOK\r\n"
     app  -> "DATA,CERT\r\n"                   begin AWS IoT cert transfer
@@ -59,6 +60,14 @@ import time
 # provisioning listener binds to whichever address it currently holds.
 DEVICE_IP = os.environ.get("LR3_HOST", "192.168.4.1")
 DEVICE_PORT = 2379      # we send here
+
+# CASE MATTERS, and this is the whole ballgame. The device answers "wsu,v1"
+# with a lowercase w. Capital-W "Wsu,v1" -- as written up in the public
+# teardown -- is silently ignored. Same for the other verbs: "Rdy" and "LR3"
+# work, "rdy" and "lr3" do not.
+SCAN_VERB = b"wsu,v1\r\n"     # -> "SSID,<name>,<rssi>,..." scan list
+READY_VERB = b"Rdy\r\n"       # -> same scan list
+ID_VERB = b"LR3\r\n"          # -> "Rdy,LR3<ID>"
 LISTEN_PORT = 2380      # device replies here
 TIMEOUT_S = 5.0
 
@@ -107,7 +116,7 @@ def probe():
         return 1
 
     with s:
-        _send(s, b"Wsu,v1\r\n")
+        _send(s, SCAN_VERB)
         replies = _drain(s, seconds=TIMEOUT_S)
 
     if not replies:
@@ -165,11 +174,12 @@ def _preflight():
 # Message variants to try when the documented one gets no answer. The device is
 # an early-release unit and may not speak exactly what elttam documented.
 DIAG_VARIANTS = [
-    ("documented, CRLF",      b"Wsu,v1\r\n",  DEVICE_IP,        LISTEN_PORT),
-    ("bare LF",               b"Wsu,v1\n",    DEVICE_IP,        LISTEN_PORT),
-    ("no terminator",         b"Wsu,v1",      DEVICE_IP,        LISTEN_PORT),
-    ("subnet broadcast",      b"Wsu,v1\r\n",  "192.168.4.255",  LISTEN_PORT),
-    ("ephemeral source port", b"Wsu,v1\r\n",  DEVICE_IP,        0),
+    ("wsu,v1 (works)",        b"wsu,v1\r\n",  DEVICE_IP,        LISTEN_PORT),
+    ("Rdy (works)",           b"Rdy\r\n",     DEVICE_IP,        LISTEN_PORT),
+    ("LR3 -> device id",      b"LR3\r\n",     DEVICE_IP,        LISTEN_PORT),
+    ("Wsu,v1 capital W",      b"Wsu,v1\r\n",  DEVICE_IP,        LISTEN_PORT),
+    ("subnet broadcast",      b"wsu,v1\r\n",  "192.168.4.255",  LISTEN_PORT),
+    ("ephemeral source port", b"wsu,v1\r\n",  DEVICE_IP,        0),
 ]
 
 
@@ -258,7 +268,7 @@ def ports(rounds=5):
             s.settimeout(2.0)
             try:
                 s.connect((DEVICE_IP, port))
-                s.send(b"Wsu,v1\r\n")
+                s.send(SCAN_VERB)
                 try:
                     s.recv(4096)
                     verdict = "REPLY"

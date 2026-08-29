@@ -9,9 +9,15 @@ fails: the app's "Update Network" flow, the button sequences, and full
 re-onboarding. If you've moved house, changed routers, or renamed your SSID and
 the app simply will not re-provision the robot, you're in the right place.
 
-> **Status: partial.** The read-only `probe` step works and is safe to run. The
-> write path — actually setting a new SSID and password — is **not implemented
-> yet**. See [Current status](#current-status) before you get your hopes up.
+> **Status: partial, but the device talks.** Read-only commands work. The write
+> path — actually setting a new SSID and password — is **not implemented yet**.
+> See [Current status](#current-status).
+
+> ### ⚠️ The verb is lowercase
+> The device answers **`wsu,v1`**. The capital-W `Wsu,v1` that appears in the
+> public teardown (and in earlier versions of this repo) is **silently ignored** —
+> no reply, no error, nothing. If you have been getting silence, this is almost
+> certainly why. See [Command vocabulary](#command-vocabulary).
 
 ## Why the app fails but a laptop should work
 
@@ -173,6 +179,32 @@ round  2379      2378 ctl  48291 ctl
 ...    (stable across 5 rounds -> genuinely open, not rate-limiting)
 ```
 
+## Command vocabulary
+
+Verified against a real LR3 Connect during a live onboarding window. Send to
+`udp/2379`; replies come **from** `2379` **to** your `2380`. Terminate with
+`\r\n`.
+
+| Send | Reply | Notes |
+|---|---|---|
+| `wsu,v1` | `SSID,<name>,<rssi>,<name>,<rssi>,...` | Scan list. **Lowercase `w`.** |
+| `Rdy` | same scan list | **Capital `R`.** `rdy` is ignored. |
+| `LR3` | `Rdy,LR3<ID>` | Device ID. **Capital.** `lr3` is ignored. |
+| `Wsu,v1` | *(silence)* | The capitalisation from the teardown. Does nothing. |
+
+Case is not consistent between verbs — `wsu` is lower, `Rdy` and `LR3` are
+capitalised — so treat every token as case-sensitive and exact.
+
+These were all ignored: `wsu` (bare), `wsu,v0`, `wsu,v2`, `Wsu,V1`, `AOK`,
+`id`, `ver`, `info`, `cfg`, `config`, `status`, `get`, `mac`, `ssid`, `aws`,
+`cert`, `crc`, `serial`, `topic`, `endpoint`, `help`, `?`. Note that sweep ran
+partly *after* the onboarding window closed, so those negatives are not
+conclusive and are worth re-running inside a confirmed-live window.
+
+**The listener is only up during the onboarding window.** Outside it, `udp/2379`
+is closed on both addresses and nothing answers. Arm pairing mode first, every
+time, and verify with `ports` before concluding anything from silence.
+
 ## Current status
 
 - ✅ `probe` — read-only. Sends `Wsu,v1`, prints whatever comes back. Writes
@@ -182,15 +214,18 @@ round  2379      2378 ctl  48291 ctl
   dropped reply apart from a silent device. Needs root.
 - ❌ Write path — not implemented, deliberately.
 
-**Open puzzle on the test unit:** `udp/2379` measured open on the robot's LAN
-address shortly after arming pairing mode (and closed again later), but it never
-answers `Wsu,v1` there — not with CRLF, bare LF, no
-terminator, broadcast, or an ephemeral source port. Nothing is dropping the
-reply; the device simply doesn't send one. The working hypothesis is that the
-listener ignores scan requests unless the unit is actually in onboarding mode,
-and that this early-release unit doesn't enter that mode properly — which is the
-original bug. A packet capture of the app mid-conversation is still the thing
-that would settle it.
+**Solved:** the silence was capitalisation. `wsu,v1` works; `Wsu,v1` does not.
+The unit enters onboarding mode correctly and binds `udp/2379` on *both* its AP
+address and its station address for the duration of the window.
+
+**Still open — the write path.** The final config line is
+`xsu,<SSID>,<password>,,,2000,LR3,<Id>,<CRC>,LR3<Serial>,<endpoint>,prod/cloud/<..>,prod/lr3/<..>`
+and we can currently read back only `<Id>`. The `<CRC>`, AWS endpoint, and topic
+strings are still unknown, and no read-only verb found so far discloses them.
+Sending a malformed `xsu` to a working robot risks writing bad endpoint/topic
+values, so the remaining options are: find a verb that dumps the stored config,
+or capture one real app exchange and replay it with the SSID and password
+swapped.
 
 Two questions have to be answered before writing bytes to a device that has no
 easy recovery path:

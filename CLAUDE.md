@@ -34,6 +34,23 @@ The usual failure is the phone bouncing off the credential-less `Litter-Robot`
 AP (Android smart-network-switch; iOS won't hold a "no internet" network). A
 laptop stays joined reliably and can send the UDP packets itself.
 
+## BREAKTHROUGH: the verb is lowercase
+`wsu,v1` gets a reply. `Wsu,v1` (as published in the elttam writeup) is silently
+ignored. That one byte explains every "no response" in this project.
+
+Verified vocabulary (send to udp/2379, reply comes from 2379 to our 2380, CRLF):
+- `wsu,v1` -> `SSID,<name>,<rssi>,...` scan list   (lowercase w)
+- `Rdy`    -> same scan list                        (capital R; `rdy` ignored)
+- `LR3`    -> `Rdy,LR3<ID>`                         (capital; `lr3` ignored)
+Case is inconsistent across verbs -- treat each as exact.
+
+This unit's ID is in the gitignored `device.local.json` (do NOT commit it).
+
+Ignored so far: bare `wsu`, `wsu,v0`, `wsu,v2`, `Wsu,V1`, `AOK`, `id`, `ver`,
+`info`, `cfg`, `config`, `status`, `get`, `mac`, `ssid`, `aws`, `cert`, `crc`,
+`serial`, `topic`, `endpoint`, `help`, `?`. That sweep ran partly AFTER the
+window closed, so re-run it inside a verified-live window before trusting it.
+
 ## Session findings (2026-08-29, real unit)
 - The robot is **already joined to the home Wi-Fi** as `192.168.2.202`
   (MAC `3c:71:bf:29:d3:6c`). Its AP BSSID is `3e:71:bf:29:d3:6c` — same ESP32,
@@ -46,12 +63,13 @@ laptop stays joined reliably and can send the UDP packets itself.
 - The single "closed on 192.168.4.1" sample was taken without interleaved
   controls, so it is weak. Re-run `ports` against 192.168.4.1 during a live
   pairing window before trusting it.
-- **It still does not answer `Wsu,v1`** — not CRLF / bare LF / no terminator /
-  broadcast / ephemeral source port, on either address. Confirmed by packet
-  capture that no reply is emitted; this is NOT a firewall drop.
+- It never answered `Wsu,v1` on any address -- because of the capitalisation,
+  not because of state. Confirmed by capture that no reply was emitted.
 - Robot answers ICMP echo on both addresses. No TCP ports open on either.
-- Working hypothesis: the listener ignores scan requests unless the unit is
-  genuinely in onboarding mode, and this early-release unit isn't entering it.
+- CONFIRMED: during a live window, udp/2379 is OPEN on BOTH 192.168.4.1 and the
+  STA address (5/5 interleaved, controls refused 5/5). The unit DOES enter
+  onboarding mode correctly. The earlier "closed on 192.168.4.1" reading was
+  taken outside a window and was wrong.
 
 ## Traps that produce silent, identical-looking failures
 - SSID case: `Litter-Robot`, not `litter-robot`.
@@ -80,6 +98,12 @@ laptop stays joined reliably and can send the UDP packets itself.
 - Clean retry: unplug from base 15 s, wait for solid blue, redo the hold.
 
 ## Next steps (in order)
+0. NEW PRIORITY -- the write path needs `<CRC>`, the AWS endpoint, and the
+   prod/cloud + prod/lr3 topic strings. `LR3` gives us `<Id>` only. Either find
+   a verb that dumps stored config (re-sweep inside a verified-live window,
+   trying lowercase/mixed case of every guess), or capture one real app
+   exchange. Do NOT send a speculative `xsu` to a working robot: a malformed
+   write could store bad endpoint/topic values we cannot restore.
 1. Put LR3 in onboarding mode (above); join laptop to `Litter-Robot` / `neverscoop`.
 2. Run: `python3 litterbot_wifi.py probe`  → expect a `Rdy,LR3<ID>` reply.
    (macOS: allow Terminal's Local Network permission if prompted.)
