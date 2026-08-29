@@ -38,10 +38,14 @@ laptop stays joined reliably and can send the UDP packets itself.
 - The robot is **already joined to the home Wi-Fi** as `192.168.2.202`
   (MAC `3c:71:bf:29:d3:6c`). Its AP BSSID is `3e:71:bf:29:d3:6c` — same ESP32,
   station vs AP interface. Find it on any LAN with `ip neigh | grep -i 3c:71:bf`.
-- **`udp/2379` is open on the STA address, closed on `192.168.4.1`.** The
-  provisioning listener binds to whichever address the device currently holds.
-  Verified by ICMP-unreachable differential, interleaved over 5 rounds against
-  control ports to rule out lwIP ICMP rate-limiting.
+- **`udp/2379` open/closed is TIME-DEPENDENT — the listener looks transient.**
+  Minutes after arming pairing mode: silent 5/5 on the STA address while controls
+  were refused 5/5 (= open). ~30 min later: closed 4/5 on the same host. Both runs
+  clean. Theory: the listener exists only during onboarding mode, bound to the
+  STA address, not `192.168.4.1`. ALWAYS re-measure; never assume.
+- The single "closed on 192.168.4.1" sample was taken without interleaved
+  controls, so it is weak. Re-run `ports` against 192.168.4.1 during a live
+  pairing window before trusting it.
 - **It still does not answer `Wsu,v1`** — not CRLF / bare LF / no terminator /
   broadcast / ephemeral source port, on either address. Confirmed by packet
   capture that no reply is emitted; this is NOT a firewall drop.
@@ -106,6 +110,7 @@ integration (user already runs Home Assistant).
 - elttam teardown (protocol spec): https://www.elttam.com/blog/re-of-lr3
 - Firmware dumps: https://github.com/huntergregal/litterrobot_firmware
 - ESPHome firmware: https://codeberg.org/Joseph-DiGiovanni/esphome-litter-robot
+  (NOTE: huntergregal/litterrobot_firmware has LR4 images ONLY -- no LR3)
 - Cloud API (not useful for provisioning): https://github.com/natekspencer/pylitterbot
 - Whisker onboarding doc: https://www.litter-robot.com/support/article/whisker-app-onboarding-your-litter-robot-3-connect/
 - Whisker onboarding troubleshooting: https://www.litter-robot.com/support/article/i-cannot-onboard-the-whisker-app/

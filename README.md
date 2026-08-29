@@ -150,9 +150,14 @@ Both are Espressif (`3c:71:bf`). So if the robot is on your LAN at all, you can
 find it by MAC prefix — `ip neigh | grep -i 3c:71:bf` — and talk to it there
 without touching the AP.
 
-**This matters because the provisioning listener binds to the station address.**
-On a unit already joined to a network, `udp/2379` is open on its LAN address and
-*closed* on `192.168.4.1`. Point the tools at it with:
+**The provisioning listener appears to be transient.** Minutes after arming
+pairing mode, `udp/2379` measured open on the robot's *station* address (silent
+5/5 rounds while control ports were refused 5/5). Half an hour later the same
+test on the same host read closed 4/5. Both runs were clean; the device state
+changed between them. Working theory: the listener is bound only while the unit
+is in onboarding mode, and it binds to the station address rather than
+`192.168.4.1`. Treat "2379 is open" as time-dependent and re-measure every time.
+Point the tools at whichever address you mean with:
 
 ```bash
 LR3_HOST=192.168.2.202 python3 litterbot_wifi.py probe
@@ -177,8 +182,9 @@ round  2379      2378 ctl  48291 ctl
   dropped reply apart from a silent device. Needs root.
 - ❌ Write path — not implemented, deliberately.
 
-**Open puzzle on the test unit:** `udp/2379` is confirmed open on the robot's LAN
-address, but it does not answer `Wsu,v1` there — not with CRLF, bare LF, no
+**Open puzzle on the test unit:** `udp/2379` measured open on the robot's LAN
+address shortly after arming pairing mode (and closed again later), but it never
+answers `Wsu,v1` there — not with CRLF, bare LF, no
 terminator, broadcast, or an ephemeral source port. Nothing is dropping the
 reply; the device simply doesn't send one. The working hypothesis is that the
 listener ignores scan requests unless the unit is actually in onboarding mode,
@@ -233,7 +239,7 @@ logic lives on a separate MCU that this doesn't touch.
 ## Sources
 
 - [elttam — Reverse engineering the Litter-Robot 3](https://www.elttam.com/blog/re-of-lr3) — the protocol spec this is built on
-- [huntergregal/litterrobot_firmware](https://github.com/huntergregal/litterrobot_firmware) — firmware dumps
+- [huntergregal/litterrobot_firmware](https://github.com/huntergregal/litterrobot_firmware) — firmware dumps, but **LR4 only**; it contains no LR3 images
 - [esphome-litter-robot](https://codeberg.org/Joseph-DiGiovanni/esphome-litter-robot) — replacement firmware
 - [pylitterbot](https://github.com/natekspencer/pylitterbot) — cloud API client (not useful for provisioning, but good for control once connected)
 - [Whisker — Onboarding your Litter-Robot 3 Connect](https://www.litter-robot.com/support/article/whisker-app-onboarding-your-litter-robot-3-connect/) — source for the pairing-mode button sequence

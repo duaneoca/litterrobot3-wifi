@@ -230,14 +230,83 @@ def diag():
     return 2
 
 
+# Ports to compare when deciding whether the provisioning listener is running.
+# The controls matter: ESP32/lwIP rate-limits ICMP error generation, so a single
+# silent result proves nothing. Interleaving with known-closed ports and
+# repeating shows whether the difference is real or just throttling.
+PORTS_UNDER_TEST = [(2379, "provisioning"), (2378, "control"), (48291, "control")]
+
+
+def ports(rounds=5):
+    """Is anything listening on udp/2379? Interleaved ICMP-unreachable test.
+
+    No root required. Sending to a closed UDP port makes the device emit an
+    ICMP port-unreachable, which the kernel surfaces to a *connected* UDP
+    socket as ConnectionRefusedError. Silence where controls are refused means
+    something is bound. Silence everywhere means ICMP is throttled or filtered
+    and the test is inconclusive -- which is why we repeat.
+    """
+    print(f"Interleaved port test against {DEVICE_IP}, {rounds} rounds.\n")
+    header = "  round  " + "".join(f"{p}/{lbl:<9}" for p, lbl in PORTS_UNDER_TEST)
+    print(header)
+
+    results = {p: [] for p, _ in PORTS_UNDER_TEST}
+    for i in range(1, rounds + 1):
+        row = []
+        for port, _ in PORTS_UNDER_TEST:
+            s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+            s.settimeout(2.0)
+            try:
+                s.connect((DEVICE_IP, port))
+                s.send(b"Wsu,v1\r\n")
+                try:
+                    s.recv(4096)
+                    verdict = "REPLY"
+                except socket.timeout:
+                    verdict = "silent"
+                except ConnectionRefusedError:
+                    verdict = "closed"
+            except OSError:
+                verdict = "err"
+            finally:
+                s.close()
+            results[port].append(verdict)
+            row.append(verdict)
+            time.sleep(1.2)
+        print(f"  {i:<7}" + "".join(f"{v:<14}" for v in row))
+
+    print()
+    open_ports = [
+        p for p, _ in PORTS_UNDER_TEST
+        if all(v == "silent" for v in results[p])
+    ]
+    closed = [
+        p for p, _ in PORTS_UNDER_TEST
+        if all(v == "closed" for v in results[p])
+    ]
+    if 2379 in open_ports and closed:
+        print("VERDICT: udp/2379 is OPEN -- a listener is bound, controls refused.")
+        return 0
+    if all(v == "silent" for vals in results.values() for v in vals):
+        print("VERDICT: INCONCLUSIVE -- everything silent, ICMP likely filtered.")
+        return 3
+    if 2379 in closed:
+        print("VERDICT: udp/2379 is CLOSED -- no provisioning listener running here.")
+        return 1
+    print("VERDICT: unstable results -- likely ICMP rate-limiting; rerun slower.")
+    return 3
+
+
 def main(argv):
     cmd = argv[1] if len(argv) > 1 else "probe"
     if cmd == "probe":
         return probe()
     if cmd == "diag":
         return diag()
+    if cmd == "ports":
+        return ports()
     print(__doc__)
-    print(f"Unknown command: {cmd!r}. Try: python3 {argv[0]} probe|diag")
+    print(f"Unknown command: {cmd!r}. Try: python3 {argv[0]} probe|diag|ports")
     return 64
 
 
