@@ -11,7 +11,7 @@ Fallback goal: if that fails, cut Whisker out entirely via custom firmware.
 The LR3 Connect (**ESP32-WROOM-32D**) is provisioned over a **plain-text UDP**
 protocol while the device is in onboarding/AP mode:
 
-- Robot's own AP: SSID **`litter-robot`**, password **`neverscoop`**
+- Robot's own AP: SSID **`Litter-Robot`** (exact case), password **`neverscoop`**
 - Robot IP: **`192.168.4.1`**
 - App → robot: **UDP port 2379**
 - Robot → app: replies to **UDP port 2380** (so bind local source port 2380)
@@ -30,14 +30,41 @@ Config line field order:
 `Type,SSID,Password,Dispatch,Port,Web,Type,Id,CRC,Serial,endpoint,cloud,lr3`
 
 ## Why the phone fails but a laptop should work
-The usual failure is the phone bouncing off the credential-less `litter-robot`
+The usual failure is the phone bouncing off the credential-less `Litter-Robot`
 AP (Android smart-network-switch; iOS won't hold a "no internet" network). A
 laptop stays joined reliably and can send the UDP packets itself.
 
+## Session findings (2026-08-29, real unit)
+- The robot is **already joined to the home Wi-Fi** as `192.168.2.202`
+  (MAC `3c:71:bf:29:d3:6c`). Its AP BSSID is `3e:71:bf:29:d3:6c` — same ESP32,
+  station vs AP interface. Find it on any LAN with `ip neigh | grep -i 3c:71:bf`.
+- **`udp/2379` is open on the STA address, closed on `192.168.4.1`.** The
+  provisioning listener binds to whichever address the device currently holds.
+  Verified by ICMP-unreachable differential, interleaved over 5 rounds against
+  control ports to rule out lwIP ICMP rate-limiting.
+- **It still does not answer `Wsu,v1`** — not CRLF / bare LF / no terminator /
+  broadcast / ephemeral source port, on either address. Confirmed by packet
+  capture that no reply is emitted; this is NOT a firewall drop.
+- Robot answers ICMP echo on both addresses. No TCP ports open on either.
+- Working hypothesis: the listener ignores scan requests unless the unit is
+  genuinely in onboarding mode, and this early-release unit isn't entering it.
+
+## Traps that produce silent, identical-looking failures
+- SSID case: `Litter-Robot`, not `litter-robot`.
+- `ufw` default-deny eats the inbound reply to udp/2380.
+- Dual-homed: with Ethernet up and Wi-Fi off the AP, `192.168.4.1` leaks out the
+  default route. `_preflight()` in the script now blocks this.
+- The robot's ICMP port-53-unreachables (answering our DNS) are not protocol
+  replies — don't count them as evidence the device is transmitting.
+
 ## Current state / files
-- `litterbot_wifi.py` — implements the **safe, read-only** `probe` step only:
-  sends `Wsu,v1`, prints the reply (confirms reachability + reveals `LR3<ID>`).
-  The write/provisioning path is intentionally NOT implemented yet.
+- `litterbot_wifi.py` — `probe` (read-only `Wsu,v1`) and `diag` (message +
+  source-port variants, with an on-link route preflight). Honours `LR3_HOST` to
+  target the robot on a normal LAN instead of `192.168.4.1`. Write path NOT
+  implemented.
+- `run_probe.sh` — join AP, probe, restore previous Wi-Fi (for single-NIC machines).
+- `probe_diag.sh` — runs `diag` under tcpdump; needs root. Distinguishes a
+  dropped reply from a silent device.
 
 ## Pairing / onboarding mode (verified against Whisker support docs)
 - Enter it: hold **`Cycle` + `Empty` together ~3 s, until the Power button turns
@@ -49,7 +76,7 @@ laptop stays joined reliably and can send the UDP packets itself.
 - Clean retry: unplug from base 15 s, wait for solid blue, redo the hold.
 
 ## Next steps (in order)
-1. Put LR3 in onboarding mode (above); join laptop to `litter-robot` / `neverscoop`.
+1. Put LR3 in onboarding mode (above); join laptop to `Litter-Robot` / `neverscoop`.
 2. Run: `python3 litterbot_wifi.py probe`  → expect a `Rdy,LR3<ID>` reply.
    (macOS: allow Terminal's Local Network permission if prompted.)
 3. Capture ONE real app exchange with Wireshark/tcpdump on UDP 2379/2380 to learn:

@@ -8,7 +8,7 @@ Background
 During onboarding the LR3 Connect (ESP32-WROOM-32D) starts its own Wi-Fi
 access point:
 
-    SSID:     litter-robot
+    SSID:     Litter-Robot     (exact case matters)
     password: neverscoop
     device IP: 192.168.4.1
 
@@ -42,16 +42,22 @@ notes at the bottom.
 
 Usage
 -----
-    1. On this computer, join Wi-Fi network "litter-robot" (password neverscoop).
+    1. On this computer, join Wi-Fi network "Litter-Robot" (password neverscoop).
        (Put the LR3 into onboarding/AP mode first if needed.)
     2. python3 litterbot_wifi.py probe
+       (or: LR3_HOST=<lan-ip> python3 litterbot_wifi.py probe|diag)
 """
 
+import os
 import socket
+import subprocess
 import sys
 import time
 
-DEVICE_IP = "192.168.4.1"
+# Default is the robot's own AP address during onboarding. Override with
+# LR3_HOST when the robot is already joined to a normal network -- the
+# provisioning listener binds to whichever address it currently holds.
+DEVICE_IP = os.environ.get("LR3_HOST", "192.168.4.1")
 DEVICE_PORT = 2379      # we send here
 LISTEN_PORT = 2380      # device replies here
 TIMEOUT_S = 5.0
@@ -92,7 +98,7 @@ def _drain(s, seconds=TIMEOUT_S):
 def probe():
     """Read-only: confirm reachability and dump the device's scan reply + ID."""
     print(f"Probing Litter-Robot at {DEVICE_IP} (listening on udp/{LISTEN_PORT})")
-    print("Make sure this computer is joined to the 'litter-robot' Wi-Fi AP.\n")
+    print("Joined to the 'Litter-Robot' AP, or set LR3_HOST to its LAN address.\n")
     try:
         s = _open_socket()
     except OSError as e:
@@ -107,7 +113,7 @@ def probe():
     if not replies:
         print("\nNo response.")
         print("Checklist:")
-        print("  * Are you actually joined to the 'litter-robot' AP (not your home Wi-Fi)?")
+        print("  * Are you actually joined to the 'Litter-Robot' AP (not your home Wi-Fi)?")
         print("    Your IP on that interface should be 192.168.4.x.")
         print("  * Is the LR3 in onboarding/AP mode? (AP disappears once it joins a network)")
         print("  * macOS may need Local Network / firewall permission for Terminal.")
@@ -118,12 +124,120 @@ def probe():
     return 0
 
 
+def _preflight():
+    """Check we can actually reach 192.168.4.1 before blaming the device.
+
+    On a dual-homed machine (Wi-Fi on the robot's AP, Ethernet for internet)
+    this matters more than it looks: if the Wi-Fi is NOT joined to the robot's
+    AP, there is no 192.168.4.0/24 link route, so packets for 192.168.4.1 fall
+    through to the default route and leave via Ethernet toward the internet.
+    They vanish silently, and it looks exactly like a device that won't answer.
+    """
+    problems = []
+
+    route = subprocess.run(
+        ["ip", "route", "get", DEVICE_IP],
+        capture_output=True, text=True,
+    ).stdout.strip()
+
+    if not route:
+        problems.append(f"no route to {DEVICE_IP} at all")
+    elif " via " in route.split(" dev ")[0]:
+        dev = route.split(" dev ")[1].split()[0] if " dev " in route else "?"
+        problems.append(
+            f"{DEVICE_IP} routes via a gateway on '{dev}' -- you are NOT on the "
+            f"robot's AP.\n     Packets are leaking out your default route "
+            f"instead of reaching the robot.\n     Route: {route}"
+        )
+
+    addrs = subprocess.run(
+        ["ip", "-4", "-br", "addr"], capture_output=True, text=True,
+    ).stdout
+    if "192.168.4." not in addrs:
+        problems.append(
+            "this machine has no 192.168.4.x address -- the robot's DHCP has "
+            "not given us a lease"
+        )
+
+    return problems, route
+
+
+# Message variants to try when the documented one gets no answer. The device is
+# an early-release unit and may not speak exactly what elttam documented.
+DIAG_VARIANTS = [
+    ("documented, CRLF",      b"Wsu,v1\r\n",  DEVICE_IP,        LISTEN_PORT),
+    ("bare LF",               b"Wsu,v1\n",    DEVICE_IP,        LISTEN_PORT),
+    ("no terminator",         b"Wsu,v1",      DEVICE_IP,        LISTEN_PORT),
+    ("subnet broadcast",      b"Wsu,v1\r\n",  "192.168.4.255",  LISTEN_PORT),
+    ("ephemeral source port", b"Wsu,v1\r\n",  DEVICE_IP,        0),
+]
+
+
+def diag():
+    """Try several message + source-port variants and report what answers.
+
+    Run this under a packet capture (see probe_diag.sh). The capture is what
+    makes the result conclusive: if bytes come back on the wire but nothing
+    reaches Python, the local firewall is dropping them; if the wire stays
+    silent, the device really is not answering.
+    """
+    problems, route = _preflight()
+    print(f"Route to {DEVICE_IP}: {route or '(none)'}\n")
+    if problems:
+        print("!! preflight failed:")
+        for p in problems:
+            print(f"   - {p}")
+        print("\n   Join the 'Litter-Robot' AP first. Not sending anything.")
+        return 2
+
+    answered = []
+    for label, payload, dest, src_port in DIAG_VARIANTS:
+        print(f"--- variant: {label}")
+        try:
+            s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+            s.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+            s.setsockopt(socket.SOL_SOCKET, socket.SO_BROADCAST, 1)
+            s.bind(("0.0.0.0", src_port))
+            s.settimeout(3.0)
+        except OSError as e:
+            print(f"    !! socket setup failed: {e}\n")
+            continue
+
+        with s:
+            bound = s.getsockname()[1]
+            print(f"    >>> {payload!r} -> {dest}:{DEVICE_PORT}  (from :{bound})")
+            try:
+                s.sendto(payload, (dest, DEVICE_PORT))
+            except OSError as e:
+                print(f"    !! send failed: {e}\n")
+                continue
+            replies = _drain(s, seconds=3.0)
+
+        if replies:
+            answered.append(label)
+        else:
+            print("    (silence)")
+        print()
+
+    if answered:
+        print(f"ANSWERED: {', '.join(answered)}")
+        return 0
+
+    print("No variant got a reply.")
+    print("Check the packet capture taken alongside this run:")
+    print("  * packets from 192.168.4.1 present  -> local firewall ate them")
+    print("  * nothing inbound at all            -> device is not answering Wsu")
+    return 2
+
+
 def main(argv):
     cmd = argv[1] if len(argv) > 1 else "probe"
     if cmd == "probe":
         return probe()
+    if cmd == "diag":
+        return diag()
     print(__doc__)
-    print(f"Unknown command: {cmd!r}. Try: python3 {argv[0]} probe")
+    print(f"Unknown command: {cmd!r}. Try: python3 {argv[0]} probe|diag")
     return 64
 
 

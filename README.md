@@ -30,7 +30,7 @@ While in onboarding/AP mode, the LR3 Connect (an ESP32-WROOM-32D) speaks a
 
 | | |
 |---|---|
-| Robot's AP SSID | `litter-robot` |
+| Robot's AP SSID | `Litter-Robot` (exact case — not `litter-robot`) |
 | Robot's AP password | `neverscoop` |
 | Robot IP | `192.168.4.1` |
 | You → robot | UDP port **2379** |
@@ -58,7 +58,7 @@ On the LR3 Connect's control panel, **press and hold `Cycle` + `Empty` together
 for about 3 seconds, until the Power button glows blue.**
 
 A blue Power button means the robot is in onboarding mode and is broadcasting
-its `litter-robot` access point. Note that it's Cycle + Empty — *not* the Reset
+its `Litter-Robot` access point. Note that it's Cycle + Empty — *not* the Reset
 button, which is the usual wrong guess.
 
 Rather than trusting the LED, confirm the AP is actually up from your computer:
@@ -100,11 +100,91 @@ ID. Requires Python 3, no dependencies.
 
 macOS may prompt for Local Network permission for your terminal — allow it.
 
+## Field notes
+
+Things learned the hard way on a real unit. Each one produces a *silent* failure
+that looks identical to "the robot is ignoring me."
+
+**The AP SSID is `Litter-Robot`, not `litter-robot`.** Case matters if you script
+an exact-match connect. Several writeups (and earlier versions of this repo) have
+it lowercase.
+
+**A default-deny firewall eats the reply.** The robot answers *to* your udp/2380,
+and depending on its source port your firewall may see an unsolicited inbound
+datagram rather than a conntrack-matched reply. On Linux with `ufw` active:
+
+```bash
+sudo ufw allow from 192.168.4.0/24 to any port 2380 proto udp comment 'litter-robot'
+```
+
+**If you have a second interface, packets can leak out of it.** With Ethernet up
+and Wi-Fi *not* joined to the AP, there is no `192.168.4.0/24` link route, so
+traffic for `192.168.4.1` follows your default route out the Ethernet toward the
+internet and vanishes. `litterbot_wifi.py` now preflights `ip route get` and
+refuses to send unless the route is on-link. Check it yourself with:
+
+```bash
+ip route get 192.168.4.1     # must say "dev <wifi>", not "via <gateway>"
+```
+
+**Not every packet from the robot is a protocol reply.** Once NetworkManager
+adopts the AP as a nameserver, your machine sends DNS to `192.168.4.1` and the
+robot answers with ICMP port-unreachables. Counting those as "the robot is
+transmitting" gives a false firewall diagnosis. Match on
+`udp and src 192.168.4.1 and dst port 2380` instead.
+
+**The onboarding window is ~10 minutes and it really does close.** Have your
+tooling ready *before* you press the buttons.
+
+## The AP and the station are the same chip
+
+The ESP32 runs its AP and its normal Wi-Fi connection at the same time, on MAC
+addresses that differ only in the second nibble of the first octet:
+
+```
+3c:71:bf:29:d3:6c   station  (on your LAN, e.g. 192.168.2.202)
+3e:71:bf:29:d3:6c   AP BSSID (192.168.4.1)
+```
+
+Both are Espressif (`3c:71:bf`). So if the robot is on your LAN at all, you can
+find it by MAC prefix — `ip neigh | grep -i 3c:71:bf` — and talk to it there
+without touching the AP.
+
+**This matters because the provisioning listener binds to the station address.**
+On a unit already joined to a network, `udp/2379` is open on its LAN address and
+*closed* on `192.168.4.1`. Point the tools at it with:
+
+```bash
+LR3_HOST=192.168.2.202 python3 litterbot_wifi.py probe
+```
+
+Confirming a UDP port is open without root: send to it and to a control port,
+and watch for ICMP unreachable. Interleave several rounds — ESP32/lwIP rate-limits
+ICMP errors, so a single silent result proves nothing.
+
+```
+round  2379      2378 ctl  48291 ctl
+1      open?     CLOSED    CLOSED
+...    (stable across 5 rounds -> genuinely open, not rate-limiting)
+```
+
 ## Current status
 
 - ✅ `probe` — read-only. Sends `Wsu,v1`, prints whatever comes back. Writes
   nothing to the device.
+- ✅ `diag` — tries message and source-port variants, with an on-link preflight.
+- ✅ `probe_diag.sh` — runs `diag` under a `tcpdump` capture, so you can tell a
+  dropped reply apart from a silent device. Needs root.
 - ❌ Write path — not implemented, deliberately.
+
+**Open puzzle on the test unit:** `udp/2379` is confirmed open on the robot's LAN
+address, but it does not answer `Wsu,v1` there — not with CRLF, bare LF, no
+terminator, broadcast, or an ephemeral source port. Nothing is dropping the
+reply; the device simply doesn't send one. The working hypothesis is that the
+listener ignores scan requests unless the unit is actually in onboarding mode,
+and that this early-release unit doesn't enter that mode properly — which is the
+original bug. A packet capture of the app mid-conversation is still the thing
+that would settle it.
 
 Two questions have to be answered before writing bytes to a device that has no
 easy recovery path:
