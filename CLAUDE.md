@@ -39,8 +39,17 @@ laptop stays joined reliably and can send the UDP packets itself.
   sends `Wsu,v1`, prints the reply (confirms reachability + reveals `LR3<ID>`).
   The write/provisioning path is intentionally NOT implemented yet.
 
+## Pairing / onboarding mode (verified against Whisker support docs)
+- Enter it: hold **`Cycle` + `Empty` together ~3 s, until the Power button turns
+  blue.** (Not the Reset button.) Blue Power = AP is broadcasting.
+- Verify from the laptop, not the LED:
+  `nmcli device wifi list --rescan yes | grep -i litter-robot`
+- Window is ~10 minutes; the AP vanishes the instant the robot joins a network.
+- Connected state: blue Power light off, Ready light blue.
+- Clean retry: unplug from base 15 s, wait for solid blue, redo the hold.
+
 ## Next steps (in order)
-1. Put LR3 in onboarding mode; join laptop to `litter-robot` / `neverscoop`.
+1. Put LR3 in onboarding mode (above); join laptop to `litter-robot` / `neverscoop`.
 2. Run: `python3 litterbot_wifi.py probe`  → expect a `Rdy,LR3<ID>` reply.
    (macOS: allow Terminal's Local Network permission if prompted.)
 3. Capture ONE real app exchange with Wireshark/tcpdump on UDP 2379/2380 to learn:
@@ -71,3 +80,5 @@ integration (user already runs Home Assistant).
 - Firmware dumps: https://github.com/huntergregal/litterrobot_firmware
 - ESPHome firmware: https://codeberg.org/Joseph-DiGiovanni/esphome-litter-robot
 - Cloud API (not useful for provisioning): https://github.com/natekspencer/pylitterbot
+- Whisker onboarding doc: https://www.litter-robot.com/support/article/whisker-app-onboarding-your-litter-robot-3-connect/
+- Whisker onboarding troubleshooting: https://www.litter-robot.com/support/article/i-cannot-onboard-the-whisker-app/

@@ -52,10 +52,42 @@ app   → final config line, carrying the home Wi-Fi credentials:
 Config line field order:
 `Type,SSID,Password,Dispatch,Port,Web,Type,Id,CRC,Serial,endpoint,cloud,lr3`
 
+## Putting the robot in pairing mode
+
+On the LR3 Connect's control panel, **press and hold `Cycle` + `Empty` together
+for about 3 seconds, until the Power button glows blue.**
+
+A blue Power button means the robot is in onboarding mode and is broadcasting
+its `litter-robot` access point. Note that it's Cycle + Empty — *not* the Reset
+button, which is the usual wrong guess.
+
+Rather than trusting the LED, confirm the AP is actually up from your computer:
+
+```bash
+# Linux
+nmcli device wifi list --rescan yes | grep -i litter-robot
+
+# macOS
+system_profiler SPAirPortDataType | grep -i -A2 litter-robot
+```
+
+Things worth knowing once you're in:
+
+- **You have about 10 minutes.** Whisker's docs say to complete the process
+  within that window.
+- **The AP disappears the moment the robot joins a network.** If the
+  `litter-robot` SSID vanishes mid-session, the robot either connected to
+  something or dropped out of onboarding mode — re-do the button hold.
+- **Success looks like:** the blue Power light turns off and the Ready light
+  turns blue. (Which, if you're reading this repo, is probably the thing that
+  isn't happening.)
+- **To retry from a clean slate:** unplug the unit from its base for 15
+  seconds, wait for the solid blue light, then repeat the button hold.
+
 ## Usage
 
 ```bash
-# 1. Put the LR3 into onboarding/AP mode.
+# 1. Put the LR3 into onboarding/AP mode (Cycle + Empty, ~3s, Power goes blue).
 # 2. Join this computer to the "litter-robot" Wi-Fi network (password: neverscoop).
 #    Your IP on that interface should be 192.168.4.x.
 # 3. Probe it:
@@ -124,6 +156,8 @@ logic lives on a separate MCU that this doesn't touch.
 - [huntergregal/litterrobot_firmware](https://github.com/huntergregal/litterrobot_firmware) — firmware dumps
 - [esphome-litter-robot](https://codeberg.org/Joseph-DiGiovanni/esphome-litter-robot) — replacement firmware
 - [pylitterbot](https://github.com/natekspencer/pylitterbot) — cloud API client (not useful for provisioning, but good for control once connected)
+- [Whisker — Onboarding your Litter-Robot 3 Connect](https://www.litter-robot.com/support/article/whisker-app-onboarding-your-litter-robot-3-connect/) — source for the pairing-mode button sequence
+- [Whisker — Onboard troubleshooting guide](https://www.litter-robot.com/support/article/i-cannot-onboard-the-whisker-app/) — the 10-minute window and power-cycle retry
 
 ## Disclaimer
 
