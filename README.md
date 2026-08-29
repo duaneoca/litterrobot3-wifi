@@ -29,6 +29,13 @@ the robot's AP mid-conversation.
 A laptop stays joined to that AP reliably, and can send the provisioning packets
 itself.
 
+**Confirmed on the test unit (2026-08-29):** the app never gets past
+"connecting…" — it never reaches network selection or credential entry. The
+phone joins the `Litter-Robot` AP, its OS marks the AP "no internet," and the
+app's first `wsu` packet never reaches `192.168.4.1`. So there is no app→robot
+exchange to capture; any plan that relied on sniffing a real `xsu` line is a
+dead end. The laptop, by contrast, holds the AP and drives the responder fine.
+
 ## The protocol
 
 While in onboarding/AP mode, the LR3 Connect (an ESP32-WROOM-32D) speaks a
@@ -181,9 +188,15 @@ round  2379      2378 ctl  48291 ctl
 
 ## Command vocabulary
 
-Verified against a real LR3 Connect during a live onboarding window. Send to
-`udp/2379`; replies come **from** `2379` **to** your `2380`. Terminate with
-`\r\n`.
+Verified against a real LR3 Connect during a live onboarding window, **from a
+laptop joined to the AP**, i.e. against `192.168.4.1`. Send to `udp/2379`;
+replies come **from** `2379` **to** your `2380`. Terminate with `\r\n`.
+
+> **Interface caveat.** These verbs are confirmed only on the **AP address**
+> (`192.168.4.1`). On the robot's *station* (LAN) address, `udp/2379` has
+> measured *open* during a window, but the responder was never observed
+> answering a command there. Do provisioning from the AP side. Monitoring the
+> LAN address for command replies is unreliable and may report false silence.
 
 | Send | Reply | Notes |
 |---|---|---|

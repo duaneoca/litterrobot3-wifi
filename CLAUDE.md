@@ -59,6 +59,26 @@ Ignored so far: bare `wsu`, `wsu,v0`, `wsu,v2`, `Wsu,V1`, `AOK`, `id`, `ver`,
 `serial`, `topic`, `endpoint`, `help`, `?`. That sweep ran partly AFTER the
 window closed, so re-run it inside a verified-live window before trusting it.
 
+## App is a confirmed DEAD END (2026-08-29)
+The Whisker app never gets past "connecting…" -- never reaches network selection
+or credential entry. The phone joins the AP, its OS flags it "no internet," and
+the app's first `wsu` never reaches 192.168.4.1. So:
+- There is NO app->robot exchange to capture. Any "sniff a real xsu line" plan
+  is dead. Do not revisit it.
+- The laptop is the only viable provisioner, and it is already proven to drive
+  the responder (wsu,v1/Rdy/LR3 all answered at 15:37 from the AP side).
+
+INTERFACE CAVEAT (corrects an earlier assumption): the working verbs were all
+confirmed against 192.168.4.1 (laptop joined to AP). On the STA/LAN address
+(192.168.2.202) only the PORT was ever shown open -- the responder was never
+seen answering a command there. LAN-side command monitoring is unreliable;
+provision from the AP.
+
+The ~26s VLAN-2 drop seen during the phone attempt was almost certainly the
+robot leaving pairing mode and reconnecting to the old network, NOT a failed
+join -- the app never handed over credentials, so there was nothing to join.
+(Earlier log over-read this.)
+
 ## Session findings (2026-08-29, real unit)
 - The robot is **already joined to the home Wi-Fi** as `192.168.2.202`
   (MAC `3c:71:bf:29:d3:6c`). Its AP BSSID is `3e:71:bf:29:d3:6c` — same ESP32,
@@ -106,12 +126,14 @@ window closed, so re-run it inside a verified-live window before trusting it.
 - Clean retry: unplug from base 15 s, wait for solid blue, redo the hold.
 
 ## Next steps (in order)
-0. NEW PRIORITY -- the write path needs `<CRC>`, the AWS endpoint, and the
-   prod/cloud + prod/lr3 topic strings. `LR3` gives us `<Id>` only. Either find
-   a verb that dumps stored config (re-sweep inside a verified-live window,
-   trying lowercase/mixed case of every guess), or capture one real app
-   exchange. Do NOT send a speculative `xsu` to a working robot: a malformed
-   write could store bad endpoint/topic values we cannot restore.
+0. NEW PRIORITY -- find a config-dump verb. The write path needs `<CRC>`, the
+   AWS endpoint, and the prod/cloud + prod/lr3 topic strings; `LR3` gives only
+   `<Id>`. Capturing the app is DEAD (it never talks to the robot), so the
+   non-invasive option is to sweep for a verb that dumps stored config, run
+   from ON the AP inside a verified-live window (`sweep_window.sh`). If nothing
+   dumps config, escalate to: (a) a careful short-`xsu` test -- risky, a
+   malformed write could store bad endpoint/topic values -- or (b) screwdriver:
+   `esptool.py read_flash` full backup, then read values or rewrite Wi-Fi NVS.
 1. Put LR3 in onboarding mode (above); join laptop to `Litter-Robot` / `neverscoop`.
 2. Run: `python3 litterbot_wifi.py probe`  → expect a `Rdy,LR3<ID>` reply.
    (macOS: allow Terminal's Local Network permission if prompted.)
