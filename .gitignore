@@ -1,0 +1,34 @@
+# ---- Device secrets & captures. Never commit. ----
+# Packet captures of the provisioning exchange contain the home Wi-Fi password
+# in plain text, plus the unit's AWS IoT cert, RSA private key, and serial.
+captures/*
+!captures/.gitkeep
+*.pcap
+*.pcapng
+*.cap
+
+# Anything holding this unit's real field values (Id, CRC, Serial, endpoint,
+# topic strings) or a filled-in "Xsu,..." config line.
+device.json
+device.local.*
+config.local.*
+secrets.env
+*.pem
+*.crt
+*.key
+
+# ---- Python ----
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+
+# ---- Test / tooling ----
+.pytest_cache/
+.coverage
+
+# ---- OS ----
+.DS_Store
+
+# ---- Claude Code local settings ----
+.claude/
